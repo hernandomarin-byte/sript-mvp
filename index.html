@@ -1,0 +1,1593 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SRIPT — Servicio Regulatorio Integrado para Gobiernos Territoriales</title>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/recharts@2.10.3/umd/Recharts.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+  * { font-family: 'Inter', sans-serif; box-sizing: border-box; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 3px; }
+  .dark ::-webkit-scrollbar-thumb { background: #475569; }
+  .transition-all { transition: all 0.2s ease; }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(8px);} to { opacity:1; transform:translateY(0);} }
+  @keyframes pulse-dot { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+  @keyframes shimmer { 0%{background-position:-200% 0;} 100%{background-position:200% 0;} }
+  .animate-fade-in { animation: fadeIn 0.3s ease forwards; }
+  .animate-pulse-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
+  .skeleton { background: linear-gradient(90deg, #e2e8f0 25%, #f8fafc 50%, #e2e8f0 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 6px; }
+  .dark .skeleton { background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%); background-size: 200% 100%; }
+  .flow-arrow { position:relative; }
+  .flow-arrow::after { content:'→'; position:absolute; right:-18px; top:50%; transform:translateY(-50%); color:#6366f1; font-size:18px; font-weight:700; }
+  .chat-bubble-user { background: linear-gradient(135deg,#6366f1,#4f46e5); color:white; border-radius:16px 16px 4px 16px; }
+  .chat-bubble-ai { background:white; border:1px solid #e2e8f0; border-radius:16px 16px 16px 4px; }
+  .dark .chat-bubble-ai { background:#1e293b; border-color:#334155; }
+  .nav-item { transition: all 0.15s ease; }
+  .nav-item:hover { background: rgba(99,102,241,0.12); }
+  .nav-item.active { background: rgba(99,102,241,0.18); border-left: 3px solid #6366f1; }
+</style>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        colors: {
+          brand: { 50:'#eef2ff', 100:'#e0e7ff', 500:'#6366f1', 600:'#4f46e5', 700:'#4338ca' },
+        }
+      }
+    }
+  }
+</script>
+</head>
+<body class="bg-slate-50">
+<div id="root"></div>
+
+<!-- SVG Chart Shim: activates when Recharts CDN is unavailable -->
+<script type="text/babel">
+(function(){
+  if (window.AreaChart) return;
+  const sc=(v,mn,mx,lo,hi)=>lo+(v-mn)/(mx-mn||1)*(hi-lo);
+  function ResponsiveContainer({children,height=200}){
+    const ref=React.useRef(); const [w,setW]=React.useState(500);
+    React.useEffect(()=>{ if(!ref.current) return;
+      const ro=new ResizeObserver(([e])=>setW(e.contentRect.width));
+      ro.observe(ref.current); setW(ref.current.offsetWidth); return ()=>ro.disconnect(); },[]);
+    return <div ref={ref} style={{width:'100%',height}}>{w>0&&React.cloneElement(React.Children.only(children),{__w:w,__h:height})}</div>;
+  }
+  function AreaChart({data=[],children,__w=400,__h=200}){
+    const mg={t:10,r:20,b:28,l:48}; const W=__w-mg.l-mg.r; const H=__h-mg.t-mg.b; const n=data.length;
+    const areas=[],lines=[],xAx=[],yAx=[],grids=[];
+    React.Children.forEach(children,c=>{if(!c)return; const t=c.type?.name;
+      if(t==='Area')areas.push(c); if(t==='Line')lines.push(c);
+      if(t==='XAxis')xAx.push(c); if(t==='YAxis')yAx.push(c); if(t==='CartesianGrid')grids.push(c); });
+    const allKeys=[...areas,...lines].map(x=>x.props.dataKey);
+    let yMn=Infinity,yMx=-Infinity;
+    allKeys.forEach(k=>data.forEach(d=>{const v=d[k]; if(v!=null&&!isNaN(v)){yMn=Math.min(yMn,v);yMx=Math.max(yMx,v);}}));
+    if(!isFinite(yMn)){yMn=0;yMx=100;} yMn=Math.min(0,yMn);
+    const Xp=i=>sc(i,0,n-1,0,W); const Yp=v=>H-sc(v??0,yMn,yMx,0,H);
+    const xKey=xAx[0]?.props?.dataKey||'name';
+    const yTks=Array.from({length:5},(_,i)=>yMn+(yMx-yMn)*i/4);
+    const fmtY=yAx[0]?.props?.tickFormatter||(v=>v>=1000?`$${Math.round(v/1000)}k`:v);
+    const colors=['#6366f1','#10b981','#f59e0b','#ef4444','#3b82f6'];
+    const mkPath=(k,areaClose)=>{let p='',s=false; data.forEach((d,i)=>{const v=d[k]; if(v==null){s=false;return;}
+      p+=s?`L${Xp(i)},${Yp(v)} `:`M${Xp(i)},${Yp(v)} `; s=true;});
+      if(areaClose){const fi=data.findIndex(d=>d[k]!=null); const li=[...data].map((d,i)=>({i,v:d[k]})).filter(x=>x.v!=null).pop();
+        if(li)p+=`L${Xp(li.i)},${H} L${Xp(fi)},${H} Z`;}
+      return p;};
+    const skip=Math.ceil(n/7);
+    return <svg width={__w} height={__h}><g transform={`translate(${mg.l},${mg.t})`}>
+      <defs>{areas.map((a,i)=>{const c=a.props.stroke||colors[i];return <linearGradient key={i} id={`ag${i}`} x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={c} stopOpacity={0.2}/><stop offset="95%" stopColor={c} stopOpacity={0}/></linearGradient>;})} </defs>
+      {grids.length>0&&yTks.map((v,i)=><line key={i} x1={0} y1={Yp(v)} x2={W} y2={Yp(v)} stroke="#f1f5f9" strokeDasharray="3,3"/>)}
+      {areas.map((a,i)=>{const k=a.props.dataKey,c=a.props.stroke||colors[i],d=a.props.strokeDasharray||'none';
+        return <g key={i}><path d={mkPath(k,true)} fill={`url(#ag${i})`}/><path d={mkPath(k,false)} fill="none" stroke={c} strokeWidth={a.props.strokeWidth||2} strokeDasharray={d}/></g>;})}
+      {lines.map((l,i)=>{const k=l.props.dataKey,c=l.props.stroke||colors[i+areas.length],d=l.props.strokeDasharray||'none';
+        return <path key={i} d={mkPath(k,false)} fill="none" stroke={c} strokeWidth={l.props.strokeWidth||1.5} strokeDasharray={d}/>;})}
+      <line x1={0} y1={H} x2={W} y2={H} stroke="#e2e8f0"/>
+      {data.map((d,i)=>i%skip===0||i===n-1?<text key={i} x={Xp(i)} y={H+16} textAnchor="middle" fontSize={11} fill="#94a3b8">{d[xKey]??i}</text>:null)}
+      {yTks.map((v,i)=><text key={i} x={-6} y={Yp(v)+4} textAnchor="end" fontSize={11} fill="#94a3b8">{fmtY(Math.round(v))}</text>)}
+    </g></svg>;
+  }
+  const LineChart=AreaChart;
+  function BarChart({data=[],children,__w=400,__h=200,layout='horizontal'}){
+    const mg={t:10,r:20,b:layout==='horizontal'?32:10,l:layout==='vertical'?108:48};
+    const W=__w-mg.l-mg.r; const H=__h-mg.t-mg.b; const n=data.length;
+    const bars=[],xAx=[],yAx=[];
+    React.Children.forEach(children,c=>{if(!c)return; const t=c.type?.name;
+      if(t==='Bar')bars.push(c); if(t==='XAxis')xAx.push(c); if(t==='YAxis')yAx.push(c);});
+    const allV=[]; bars.forEach(b=>data.forEach(d=>{const v=d[b.props.dataKey]; if(v!=null)allV.push(v);}));
+    const vMx=Math.max(...allV,1);
+    const colors=['#6366f1','#10b981','#f59e0b','#ef4444'];
+    const catKey=layout==='vertical'?yAx[0]?.props?.dataKey||'proceso':xAx[0]?.props?.dataKey||'name';
+    const bc=bars.length;
+    return <svg width={__w} height={__h}><g transform={`translate(${mg.l},${mg.t})`}>
+      {layout==='horizontal'&&data.map((d,di)=>{const slW=W/n,bW=slW*0.72/bc,x0=slW*di+slW*0.14;
+        return <g key={di}>{bars.map((b,bi)=>{const v=d[b.props.dataKey]??0,bH=(v/vMx)*H,c=b.props.fill||colors[bi%colors.length],rx=b.props.radius?b.props.radius[0]||4:0;
+          return <rect key={bi} x={x0+bW*bi} y={H-bH} width={bH>0?bW-2:0} height={bH} fill={c} rx={rx}/>;})}
+          <text x={x0+bW*bc/2} y={H+16} textAnchor="middle" fontSize={9} fill="#94a3b8">{d[catKey]??di}</text></g>;})}
+      {layout==='vertical'&&data.map((d,di)=>{const slH=H/n,bH=slH*0.65/bc,y0=slH*di+slH*0.175;
+        return <g key={di}>{bars.map((b,bi)=>{const v=d[b.props.dataKey]??0,bW=(v/vMx)*W,c=b.props.fill||colors[bi%colors.length],rx=b.props.radius?b.props.radius[1]||4:0;
+          return <rect key={bi} x={0} y={y0+bH*bi} width={bW} height={bH>0?bH-2:0} fill={c} rx={rx}/>;})}
+          <text x={-6} y={y0+slH*0.325+4} textAnchor="end" fontSize={10} fill="#94a3b8">{d[catKey]??di}</text></g>;})}
+      {layout==='horizontal'&&<line x1={0} y1={H} x2={W} y2={H} stroke="#e2e8f0"/>}
+      {layout==='vertical'&&<line x1={0} y1={0} x2={0} y2={H} stroke="#e2e8f0"/>}
+    </g></svg>;
+  }
+  function PieChart({children,__w=300,__h=200}){
+    const pies=[]; React.Children.forEach(children,c=>{if(c?.type?.name==='Pie')pies.push(c);});
+    const cx=__w/2,cy=__h/2;
+    return <svg width={__w} height={__h}>{pies.map((pie,pi)=>{
+      const{data=[],innerRadius=0,outerRadius=Math.min(cx,cy)*0.85,dataKey='value',paddingAngle=0}=pie.props;
+      const total=data.reduce((s,d)=>s+(d[dataKey]||0),0);
+      const cells=[]; React.Children.forEach(pie.props.children,c=>cells.push(c));
+      let ang=-Math.PI/2;
+      return <g key={pi}>{data.map((d,i)=>{
+        const val=d[dataKey]||0,sweep=(val/(total||1))*2*Math.PI;
+        const c=cells[i]?.props?.fill||d.color||['#6366f1','#0ea5e9','#f59e0b','#10b981','#94a3b8'][i%5];
+        const x1=cx+outerRadius*Math.cos(ang),y1=cy+outerRadius*Math.sin(ang);
+        const x2=cx+outerRadius*Math.cos(ang+sweep),y2=cy+outerRadius*Math.sin(ang+sweep);
+        const ix1=cx+innerRadius*Math.cos(ang+sweep),iy1=cy+innerRadius*Math.sin(ang+sweep);
+        const ix2=cx+innerRadius*Math.cos(ang),iy2=cy+innerRadius*Math.sin(ang);
+        const lg=sweep>Math.PI?1:0;
+        const path=innerRadius>0
+          ?`M${x1},${y1} A${outerRadius},${outerRadius} 0 ${lg} 1 ${x2},${y2} L${ix1},${iy1} A${innerRadius},${innerRadius} 0 ${lg} 0 ${ix2},${iy2} Z`
+          :`M${cx},${cy} L${x1},${y1} A${outerRadius},${outerRadius} 0 ${lg} 1 ${x2},${y2} Z`;
+        ang+=sweep+(paddingAngle*Math.PI/180);
+        return <path key={i} d={path} fill={c}/>;
+      })}</g>;})}</svg>;
+  }
+  function Area(p){return null;} function Line(p){return null;} function Bar(p){return null;}
+  function Pie(p){return null;} function Cell(p){return null;}
+  function XAxis(p){return null;} function YAxis(p){return null;}
+  function CartesianGrid(p){return null;} function Tooltip(p){return null;}
+  function Legend(p){return null;} function RadialBarChart(p){return <div/>;} function RadialBar(p){return null;}
+  Object.assign(window,{ResponsiveContainer,AreaChart,LineChart,Area,Line,BarChart,Bar,
+    PieChart,Pie,Cell,XAxis,YAxis,CartesianGrid,Tooltip,Legend,RadialBarChart,RadialBar});
+})();
+</script>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+const _RC = window.Recharts || window;
+const { AreaChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, RadialBarChart, RadialBar } = _RC;
+
+// ─── ICONS ───────────────────────────────────────────────────────────────────
+const Icon = ({ d, size=20, className='', fill='none', strokeWidth=1.75 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className}>
+    {Array.isArray(d) ? d.map((p,i)=><path key={i} d={p}/>) : <path d={d}/>}
+  </svg>
+);
+const icons = {
+  home: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
+  book: ["M4 19.5A2.5 2.5 0 0 1 6.5 17H20","M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"],
+  scale: ["M12 3v18","M3 6l9-3 9 3","M3 6c0 4.5 4 9 9 9s9-4.5 9-9"],
+  chart: ["M18 20V10","M12 20V4","M6 20v-6"],
+  bell: ["M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9","M13.73 21a2 2 0 0 1-3.46 0"],
+  cpu: ["M9 2H15","M9 22H15","M2 9V15","M22 9V15","M9 9h6v6H9z","M9 2v7","M15 2v7","M9 15v7","M15 15v7","M2 9h7","M15 9h7","M2 15h7","M15 15h7"],
+  message: ["M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"],
+  search: ["M11 17A6 6 0 1 0 11 5a6 6 0 0 0 0 12z","M21 21l-4.35-4.35"],
+  sun: ["M12 17A5 5 0 1 0 12 7a5 5 0 0 0 0 10z","M12 1v2","M12 21v2","M4.22 4.22l1.42 1.42","M18.36 18.36l1.42 1.42","M1 12h2","M21 12h2","M4.22 19.78l1.42-1.42","M18.36 5.64l1.42-1.42"],
+  moon: "M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z",
+  upload: ["M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4","M17 8l-5-5-5 5","M12 3v12"],
+  zap: "M13 2L3 14h9l-1 8 10-12h-9l1-8z",
+  shield: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z",
+  alert: ["M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z","M12 9v4","M12 17h.01"],
+  check: "M20 6L9 17l-5-5",
+  x: ["M18 6L6 18","M6 6l12 12"],
+  chevron: { right:"M9 18l6-6-6-6", down:"M6 9l6 6 6-6" },
+  file: ["M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z","M14 2v6h6","M16 13H8","M16 17H8","M10 9H8"],
+  link: ["M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71","M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"],
+  git: ["M18 3a3 3 0 0 1 0 6","M6 3a3 3 0 0 1 0 6","M13 6h-2","M6 9v12","M18 9a9 9 0 0 1-9 9","M21 3a3 3 0 0 1 0 6"],
+  send: "M22 2L11 13M22 2L15 22 11 13 2 9l20-7z",
+  refresh: ["M23 4v6h-6","M1 20v-6h6","M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"],
+  trend: ["M23 6l-9.5 9.5-5-5L1 18","M17 6h6v6"],
+  dollar: ["M12 1v22","M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"],
+  eye: ["M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z","M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"],
+  layers: ["M12 2L2 7l10 5 10-5-10-5z","M2 17l10 5 10-5","M2 12l10 5 10-5"],
+  settings: ["M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z","M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"],
+  map: ["M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4z","M8 2v16","M16 6v16"],
+};
+
+// ─── SAMPLE DATA ─────────────────────────────────────────────────────────────
+const RECAUDO_DATA = [
+  { year:'2020', real:4820, meta:5200, proyectado:null },
+  { year:'2021', real:5140, meta:5500, proyectado:null },
+  { year:'2022', real:5890, meta:6000, proyectado:null },
+  { year:'2023', real:6210, meta:6800, proyectado:null },
+  { year:'2024', real:6950, meta:7400, proyectado:null },
+  { year:'2025', real:7380, meta:8000, proyectado:null },
+  { year:'2026*', real:null, meta:9200, proyectado:9850 },
+  { year:'2027*', real:null, meta:10500, proyectado:11200 },
+];
+
+const TRIBUTOS_DATA = [
+  { name:'ICA', value:38, color:'#6366f1' },
+  { name:'Predial', value:31, color:'#0ea5e9' },
+  { name:'Alumbrado', value:14, color:'#f59e0b' },
+  { name:'Delineación', value:9, color:'#10b981' },
+  { name:'Otros', value:8, color:'#94a3b8' },
+];
+
+const COBRO_DATA = [
+  { proceso:'Cobro Persuasivo', eficiencia:72, costo:18 },
+  { proceso:'Cobro Coactivo', eficiencia:58, costo:42 },
+  { proceso:'Acuerdo de Pago', eficiencia:84, costo:12 },
+  { proceso:'Remisión', eficiencia:31, costo:8 },
+  { proceso:'Fiscalización', eficiencia:91, costo:35 },
+];
+
+const BRECHAS = [
+  {
+    id:'B001', gravedad:'alta', impacto:'$1.240M COP',
+    tributo:'ICA', norma_local:'Acuerdo 012 de 2009',
+    norma_superior:'Ley 1819/2016 + Ley 2277/2022',
+    descripcion:'Base gravable de servicios financieros no actualizada. La norma local no incorpora las modificaciones del artículo 345 de la Ley 1819/2016 sobre retención en ICA para establecimientos de crédito.',
+    estado:'sin_ajustar',
+  },
+  {
+    id:'B002', gravedad:'alta', impacto:'$870M COP',
+    tributo:'Predial', norma_local:'Acuerdo 018 de 2015',
+    norma_superior:'Ley 2381/2024 (MFMP)',
+    descripcion:'Tasas diferenciales para inmuebles rurales no alineadas con el Marco Fiscal de Mediano Plazo 2024. Requiere actualización de tarifas y criterios de estratificación predial.',
+    estado:'en_revision',
+  },
+  {
+    id:'B003', gravedad:'media', impacto:'$420M COP',
+    tributo:'Delineación Urbana', norma_local:'Acuerdo 005 de 2012',
+    norma_superior:'Sentencia C-144/2023 Corte Constitucional',
+    descripcion:'El hecho generador no distingue entre construcción nueva y reforma. La Corte Constitucional en sentencia C-144/2023 exige diferenciación expresa para evitar doble tributación.',
+    estado:'sin_ajustar',
+  },
+  {
+    id:'B004', gravedad:'baja', impacto:'$190M COP',
+    tributo:'Alumbrado Público', norma_local:'Acuerdo 021 de 2019',
+    norma_superior:'Resolución CREG 174/2021',
+    descripcion:'Metodología de liquidación no actualizada según Resolución CREG 174/2021. Afecta la determinación de la contribución especial de alumbrado público.',
+    estado:'ajustado',
+  },
+];
+
+const ALERTAS = [
+  { id:1, tipo:'critica', fecha:'2026-04-08', titulo:'Modificación Ley 2277/2022 — Decreto Reglamentario 1071/2026', descripcion:'El MHyCP expidió decreto reglamentario que modifica el procedimiento de recaudo de ICA para grandes contribuyentes. Impacta Procedimiento PR-ICA-003.', afecta:['ICA','Procedimiento PR-ICA-003'], leida:false },
+  { id:2, tipo:'alta', fecha:'2026-04-05', titulo:'Nueva Jurisprudencia Consejo de Estado — Predial Rural', descripcion:'Sentencia CE-2026-00124 establece criterios para la actualización de avalúos catastrales en zonas rurales. Requiere revisión del Acuerdo 018/2015.', afecta:['Predial','Acuerdo 018/2015'], leida:false },
+  { id:3, tipo:'media', fecha:'2026-03-28', titulo:'Circular DIAN 012/2026 — Reporte de Información ICA', descripcion:'Nueva circular sobre cruce de información tributaria entre DIAN y fiscos municipales. Oportunidad para fortalecer fiscalización de ICA.', afecta:['ICA','Fiscalización'], leida:true },
+  { id:4, tipo:'baja', fecha:'2026-03-15', titulo:'Actualización Marco Fiscal Mediano Plazo — DNP', descripcion:'El DNP publicó actualización del MFMP con nuevas proyecciones de transferencias. Ajustar supuestos en modelo de recaudo proyectado.', afecta:['MFMP','Presupuesto'], leida:true },
+];
+
+const CHAT_INICIAL = [
+  { rol:'ai', texto:'Hola. Soy el Asistente Normativo del SRIPT. Puedo responder preguntas sobre el Estatuto Tributario Municipal, jurisprudencia aplicable, procedimientos de cobro y las brechas detectadas en su municipio. ¿En qué le puedo ayudar?', fuentes:[] },
+];
+
+const CONCEPTOS = [
+  { id:1, cat:'ICA', titulo:'Base gravable ICA — Servicios Financieros', resumen:'Según Art. 345 Ley 1819/2016, la base gravable para establecimientos de crédito es el promedio mensual de activos, excluidos ciertos activos de inversión...', normas:['Ley 1819/2016 Art. 345','Concepto DIAN 18285/2020'] },
+  { id:2, cat:'Predial', titulo:'Actualización de tarifas prediales — Límites legales', resumen:'El Artículo 6 de la Ley 44/1990 establece que la tarifa del impuesto predial no puede exceder el 16 por mil ni ser inferior al 1 por mil del avalúo catastral...', normas:['Ley 44/1990 Art. 6','Ley 1995/2019'] },
+  { id:3, cat:'Procedimiento', titulo:'Proceso de cobro coactivo — Etapas y requisitos', resumen:'El mandamiento de pago es el acto que inicia el proceso de cobro coactivo. Debe contener: identificación del deudor, cuantía adeudada, fundamento de la obligación...', normas:['Estatuto Tributario Art. 826','Ley 1066/2006'] },
+  { id:4, cat:'Jurisprudencia', titulo:'Sentencia C-144/2023 — Delineación Urbana', resumen:'La Corte Constitucional declaró exequible condicionalmente el impuesto de delineación urbana, exigiendo que los municipios distingan expresamente entre...', normas:['Sentencia C-144/2023 CC','Art. 74 Ley 388/1997'] },
+];
+
+const PROYECTO_TEMPLATE = (brecha) => `PROYECTO DE ACUERDO N° ___ DE 2026
+
+"POR MEDIO DEL CUAL SE ACTUALIZA EL ESTATUTO TRIBUTARIO MUNICIPAL EN
+MATERIA DE ${brecha.tributo.toUpperCase()} Y SE DICTAN OTRAS DISPOSICIONES"
+
+EL CONCEJO MUNICIPAL DE [MUNICIPIO]
+en ejercicio de sus atribuciones constitucionales y legales, en especial
+las conferidas por los artículos 287, 294, 317 y 338 de la Constitución
+Política de Colombia, la Ley 136 de 1994 y demás normas concordantes,
+
+ACUERDA:
+
+ARTÍCULO 1°. OBJETO. El presente Acuerdo tiene por objeto actualizar y
+armonizar las disposiciones del Estatuto Tributario Municipal relacionadas
+con el impuesto de ${brecha.tributo}, en concordancia con lo establecido
+en ${brecha.norma_superior}.
+
+ARTÍCULO 2°. MODIFICACIÓN. Modifícase el artículo ___ del ${brecha.norma_local},
+el cual quedará así:
+
+"ARTÍCULO ___. ${brecha.tributo.toUpperCase()}. [Texto actualizado conforme
+a la normativa superior]
+
+${brecha.tributo === 'ICA' ? `
+La base gravable para los servicios financieros será el promedio mensual
+de activos, de conformidad con el Artículo 345 de la Ley 1819 de 2016,
+modificado por el Artículo 84 de la Ley 2277 de 2022.` : ''}
+${brecha.tributo === 'Predial' ? `
+Las tarifas diferenciadas para inmuebles rurales se fijarán conforme a
+las proyecciones del Marco Fiscal de Mediano Plazo y los criterios
+establecidos por el DNP en el MFMP 2024-2034.` : ''}
+${brecha.tributo === 'Delineación Urbana' ? `
+El hecho generador del impuesto de delineación urbana comprende
+exclusivamente las construcciones nuevas. Las reformas, adecuaciones
+y remodelaciones constituyen hechos generadores independientes y
+diferenciados, conforme a la Sentencia C-144/2023 de la Corte
+Constitucional.` : ''}"
+
+ARTÍCULO 3°. VIGENCIA. El presente Acuerdo rige a partir de su
+publicación y deroga las disposiciones que le sean contrarias,
+especialmente las contenidas en ${brecha.norma_local}.
+
+EXPOSICIÓN DE MOTIVOS
+
+I. JUSTIFICACIÓN NORMATIVA
+El municipio se encuentra ante una brecha crítica entre su normativa
+local (${brecha.norma_local}) y el ordenamiento jurídico superior
+(${brecha.norma_superior}). ${brecha.descripcion}
+
+II. IMPACTO FISCAL ESTIMADO
+Según el análisis econométrico del SRIPT, la actualización normativa
+generaría un impacto positivo en el recaudo de aproximadamente
+${brecha.impacto} anuales, equivalentes a un incremento del
+${Math.floor(Math.random()*8+5)}% en el recaudo total del tributo.
+
+III. FUNDAMENTO CONSTITUCIONAL
+El artículo 338 de la Constitución Política otorga a los Concejos
+Municipales la facultad de establecer tributos en su jurisdicción,
+con sujeción a la ley. La armonización con la normativa superior
+no solo es una obligación legal sino una oportunidad de optimización
+del recaudo territorial.`;
+
+// ─── UTILITY COMPONENTS ──────────────────────────────────────────────────────
+const Badge = ({ label, color='indigo' }) => {
+  const colors = {
+    indigo:'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300',
+    red:'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+    amber:'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+    green:'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+    slate:'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
+  };
+  return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colors[color]}`}>{label}</span>;
+};
+
+const Card = ({ children, className='' }) => (
+  <div className={`bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 ${className}`}>{children}</div>
+);
+
+const Skeleton = ({ h='h-4', w='w-full', className='' }) => (
+  <div className={`skeleton ${h} ${w} ${className}`} />
+);
+
+const GravedadBadge = ({ g }) => {
+  if (g === 'alta') return <Badge label="Alta" color="red"/>;
+  if (g === 'media') return <Badge label="Media" color="amber"/>;
+  return <Badge label="Baja" color="green"/>;
+};
+
+const EstadoBadge = ({ e }) => {
+  if (e === 'sin_ajustar') return <Badge label="Sin ajustar" color="red"/>;
+  if (e === 'en_revision') return <Badge label="En revisión" color="amber"/>;
+  return <Badge label="Ajustado" color="green"/>;
+};
+
+const SectionTitle = ({ icon, title, subtitle }) => (
+  <div className="flex items-start gap-3 mb-6">
+    <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
+      <Icon d={icons[icon]} size={18}/>
+    </div>
+    <div>
+      <h2 className="text-xl font-700 text-slate-900 dark:text-white font-bold">{title}</h2>
+      {subtitle && <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{subtitle}</p>}
+    </div>
+  </div>
+);
+
+// ─── DASHBOARD ───────────────────────────────────────────────────────────────
+function Dashboard({ setModule }) {
+  const kpis = [
+    { label:'Recaudo 2025', value:'$7.380M', change:'+6.2%', up:true, icon:'dollar', color:'indigo' },
+    { label:'Brechas Detectadas', value:'4', change:'3 sin ajustar', up:false, icon:'alert', color:'red' },
+    { label:'Meta 2026', value:'$9.200M', change:'Proyectado $9.850M', up:true, icon:'trend', color:'emerald' },
+    { label:'Alertas Normativas', value:'2', change:'Nuevas esta semana', up:false, icon:'bell', color:'amber' },
+  ];
+  const colorMap = {
+    indigo:'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 border-indigo-100 dark:border-indigo-800',
+    red:'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 border-red-100 dark:border-red-800',
+    emerald:'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-800',
+    amber:'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 border-amber-100 dark:border-amber-800',
+  };
+  return (
+    <div className="animate-fade-in space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Panel General — Municipio de Zipaquirá</h1>
+        <p className="text-slate-500 dark:text-slate-400 mt-1 text-sm">Secretaría de Hacienda · Actualizado: 10 de abril de 2026</p>
+      </div>
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {kpis.map((k,i) => (
+          <Card key={i} className={`p-5 border ${colorMap[k.color]}`}>
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-semibold uppercase tracking-wide opacity-70">{k.label}</span>
+              <Icon d={icons[k.icon]} size={16}/>
+            </div>
+            <div className="text-2xl font-bold">{k.value}</div>
+            <div className={`text-xs mt-1 font-medium ${k.up ? 'text-emerald-600' : 'text-red-500'}`}>{k.change}</div>
+          </Card>
+        ))}
+      </div>
+
+      {/* Charts row */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <Card className="p-5 lg:col-span-2">
+          <h3 className="font-semibold text-slate-800 dark:text-white mb-4 text-sm">Recaudo Histórico vs. Meta (Millones COP)</h3>
+          <ResponsiveContainer width="100%" height={200}>
+            <AreaChart data={RECAUDO_DATA}>
+              <defs>
+                <linearGradient id="gradReal" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                </linearGradient>
+                <linearGradient id="gradProy" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9"/>
+              <XAxis dataKey="year" tick={{fontSize:11}} tickLine={false}/>
+              <YAxis tick={{fontSize:11}} tickLine={false} axisLine={false}/>
+              <Tooltip formatter={(v)=>v?`$${v}M`:'-'} contentStyle={{borderRadius:'12px',border:'1px solid #e2e8f0',fontSize:'12px'}}/>
+              <Legend iconSize={10} wrapperStyle={{fontSize:'11px'}}/>
+              <Area type="monotone" dataKey="real" name="Real" stroke="#6366f1" fill="url(#gradReal)" strokeWidth={2} dot={false}/>
+              <Area type="monotone" dataKey="proyectado" name="Proyectado" stroke="#10b981" fill="url(#gradProy)" strokeWidth={2} strokeDasharray="5 5" dot={false}/>
+              <Line type="monotone" dataKey="meta" name="Meta" stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="3 3" dot={false}/>
+            </AreaChart>
+          </ResponsiveContainer>
+        </Card>
+
+        <Card className="p-5">
+          <h3 className="font-semibold text-slate-800 dark:text-white mb-4 text-sm">Distribución Recaudo por Tributo</h3>
+          <ResponsiveContainer width="100%" height={160}>
+            <PieChart>
+              <Pie data={TRIBUTOS_DATA} cx="50%" cy="50%" innerRadius={45} outerRadius={70} paddingAngle={3} dataKey="value">
+                {TRIBUTOS_DATA.map((e,i)=><Cell key={i} fill={e.color}/>)}
+              </Pie>
+              <Tooltip formatter={(v)=>`${v}%`} contentStyle={{borderRadius:'12px',border:'1px solid #e2e8f0',fontSize:'12px'}}/>
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="space-y-1 mt-2">
+            {TRIBUTOS_DATA.map((t,i)=>(
+              <div key={i} className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{background:t.color}}/>
+                  <span className="text-slate-600 dark:text-slate-400">{t.name}</span>
+                </div>
+                <span className="font-semibold text-slate-700 dark:text-slate-300">{t.value}%</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      {/* Trazabilidad flow */}
+      <Card className="p-5">
+        <h3 className="font-semibold text-slate-800 dark:text-white mb-4 text-sm flex items-center gap-2">
+          <Icon d={icons.git} size={15} className="text-indigo-500"/>
+          Trazabilidad Total — Estado Actual
+        </h3>
+        <div className="flex flex-wrap items-center gap-3">
+          {[
+            { label:'Norma Superior', sub:'Ley 2277/2022', done:true, color:'bg-indigo-500' },
+            { label:'Brecha Detectada', sub:'4 brechas / $2.720M', done:true, color:'bg-red-500' },
+            { label:'Proyecto de Acuerdo', sub:'2 en elaboración', done:false, color:'bg-amber-400' },
+            { label:'Procedimiento Operativo', sub:'Pendiente', done:false, color:'bg-slate-300' },
+            { label:'Ajuste en Sistema', sub:'Pendiente', done:false, color:'bg-slate-300' },
+          ].map((step,i,arr)=>(
+            <React.Fragment key={i}>
+              <div className="flex flex-col items-center text-center min-w-[100px]">
+                <div className={`w-10 h-10 rounded-full ${step.color} flex items-center justify-center text-white mb-2 shadow-sm`}>
+                  {step.done ? <Icon d={icons.check} size={16}/> : <span className="text-sm font-bold">{i+1}</span>}
+                </div>
+                <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">{step.label}</div>
+                <div className="text-xs text-slate-400 mt-0.5">{step.sub}</div>
+              </div>
+              {i < arr.length-1 && (
+                <div className="text-2xl text-slate-300 dark:text-slate-600 font-light hidden sm:block">→</div>
+              )}
+            </React.Fragment>
+          ))}
+        </div>
+      </Card>
+
+      {/* Quick actions */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[
+          { label:'Analizar Brechas', icon:'scale', mod:'normativa', color:'bg-indigo-500' },
+          { label:'Consultar IA', icon:'message', mod:'ia', color:'bg-violet-500' },
+          { label:'Ver Analítica', icon:'chart', mod:'analitica', color:'bg-sky-500' },
+          { label:'Centro de Alertas', icon:'bell', mod:'gobernanza', color:'bg-amber-500' },
+        ].map((a,i)=>(
+          <button key={i} onClick={()=>setModule(a.mod)}
+            className="flex items-center gap-3 p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all text-left">
+            <div className={`w-9 h-9 rounded-lg ${a.color} flex items-center justify-center text-white shrink-0`}>
+              <Icon d={icons[a.icon]} size={16}/>
+            </div>
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{a.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── MODULE 1: NORMATIVA ──────────────────────────────────────────────────────
+function NormativaModule() {
+  const [tab, setTab] = useState('brechas');
+  const [selectedBrecha, setSelectedBrecha] = useState(null);
+  const [generando, setGenerando] = useState(false);
+  const [proyectoGenerado, setProyectoGenerado] = useState(null);
+  const [normativaText, setNormativaText] = useState('');
+  const [showModal, setShowModal] = useState(false);
+
+  const generarProyecto = (brecha) => {
+    setGenerando(true);
+    setProyectoGenerado(null);
+    setTimeout(()=>{
+      setProyectoGenerado(PROYECTO_TEMPLATE(brecha));
+      setGenerando(false);
+      setShowModal(true);
+    }, 2200);
+  };
+
+  const tabs = [
+    { id:'brechas', label:'Motor de Brechas', icon:'scale' },
+    { id:'procedimientos', label:'Procedimientos', icon:'settings' },
+    { id:'cronograma', label:'Cronograma', icon:'map' },
+    { id:'carga', label:'Carga Normativa', icon:'upload' },
+    { id:'trazabilidad', label:'Trazabilidad', icon:'git' },
+  ];
+
+  return (
+    <div className="animate-fade-in space-y-6">
+      <SectionTitle icon="book" title="Núcleo de Gestión Normativa" subtitle="Análisis de brechas entre normativa local y referentes nacionales"/>
+
+      {/* Tabs */}
+      <div className="flex gap-1 bg-slate-100 dark:bg-slate-700/50 rounded-xl p-1 w-fit">
+        {tabs.map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${tab===t.id ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
+            <Icon d={icons[t.icon]} size={14}/>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'carga' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Card className="p-5">
+            <h3 className="font-semibold text-slate-800 dark:text-white mb-3 text-sm">Normativa Vigente del Municipio</h3>
+            <textarea value={normativaText} onChange={e=>setNormativaText(e.target.value)}
+              placeholder="Pegue aquí el texto de los Acuerdos Municipales, Estatuto Tributario u otros documentos normativos locales..."
+              className="w-full h-48 text-sm border border-slate-200 dark:border-slate-600 rounded-xl p-3 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-slate-700 dark:text-white"/>
+            <div className="flex gap-2 mt-3">
+              <button className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-all">
+                <Icon d={icons.upload} size={14}/>Subir Archivo
+              </button>
+              <button className="px-4 py-2 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all">
+                Analizar Texto
+              </button>
+            </div>
+          </Card>
+          <Card className="p-5">
+            <h3 className="font-semibold text-slate-800 dark:text-white mb-3 text-sm">Series Históricas de Recaudo</h3>
+            <div className="border-2 border-dashed border-slate-200 dark:border-slate-600 rounded-xl p-8 text-center">
+              <Icon d={icons.chart} size={28} className="text-slate-300 dark:text-slate-600 mx-auto mb-2"/>
+              <p className="text-sm text-slate-400 mb-3">Arrastre archivos CSV o Excel con datos históricos de recaudo</p>
+              <button className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 rounded-lg text-sm hover:bg-slate-200 dark:hover:bg-slate-600 transition-all">
+                Seleccionar Archivo
+              </button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {tab === 'brechas' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex gap-2">
+              <Badge label={`${BRECHAS.filter(b=>b.gravedad==='alta').length} Alta Gravedad`} color="red"/>
+              <Badge label={`${BRECHAS.filter(b=>b.gravedad==='media').length} Media`} color="amber"/>
+              <Badge label={`${BRECHAS.filter(b=>b.gravedad==='baja').length} Baja`} color="green"/>
+            </div>
+            <div className="text-sm font-semibold text-red-600 dark:text-red-400">
+              Impacto total: $2.720M COP/año
+            </div>
+          </div>
+
+          {BRECHAS.map(b=>(
+            <Card key={b.id} className={`p-5 border-l-4 ${b.gravedad==='alta'?'border-l-red-500':b.gravedad==='media'?'border-l-amber-400':'border-l-emerald-400'}`}>
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2 flex-wrap">
+                    <span className="font-mono text-xs text-slate-400">{b.id}</span>
+                    <GravedadBadge g={b.gravedad}/>
+                    <Badge label={b.tributo} color="indigo"/>
+                    <EstadoBadge e={b.estado}/>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                    <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-3">
+                      <div className="text-xs font-semibold text-red-600 dark:text-red-400 mb-1 uppercase tracking-wide">Norma Local (Desactualizada)</div>
+                      <div className="text-sm font-medium text-slate-700 dark:text-slate-300">{b.norma_local}</div>
+                    </div>
+                    <div className="bg-emerald-50 dark:bg-emerald-900/20 rounded-lg p-3">
+                      <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-1 uppercase tracking-wide">Referente Superior (Vigente)</div>
+                      <div className="text-sm font-medium text-slate-700 dark:text-slate-300">{b.norma_superior}</div>
+                    </div>
+                  </div>
+                  <p className="text-sm text-slate-600 dark:text-slate-400">{b.descripcion}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="text-xs text-slate-400 mb-1">Impacto est.</div>
+                  <div className="text-lg font-bold text-indigo-600 dark:text-indigo-400">{b.impacto}</div>
+                  <div className="text-xs text-slate-400">por año</div>
+                </div>
+              </div>
+              <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100 dark:border-slate-700">
+                <button onClick={()=>generarProyecto(b)}
+                  disabled={generando}
+                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-all disabled:opacity-50">
+                  <Icon d={icons.zap} size={13}/>
+                  {generando && selectedBrecha?.id===b.id ? 'Generando...' : 'Generar Proyecto de Acuerdo'}
+                </button>
+                <button onClick={()=>setSelectedBrecha(selectedBrecha?.id===b.id?null:b)}
+                  className="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all">
+                  <Icon d={icons.eye} size={13}/>
+                  {selectedBrecha?.id===b.id ? 'Ocultar' : 'Ver detalle'}
+                </button>
+              </div>
+              {generando && (
+                <div className="mt-4 space-y-2">
+                  <Skeleton h="h-3" w="w-3/4"/>
+                  <Skeleton h="h-3" w="w-full"/>
+                  <Skeleton h="h-3" w="w-5/6"/>
+                </div>
+              )}
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {tab === 'procedimientos' && <ProcedimientosTab/>}
+      {tab === 'cronograma' && <CronogramaTab/>}
+      {tab === 'trazabilidad' && <TrazabilidadView/>}
+
+      {/* Modal Proyecto */}
+      {showModal && proyectoGenerado && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100 dark:border-slate-700">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-indigo-100 dark:bg-indigo-900/40 rounded-lg flex items-center justify-center text-indigo-600">
+                  <Icon d={icons.file} size={15}/>
+                </div>
+                <div>
+                  <h3 className="font-semibold text-slate-900 dark:text-white text-sm">Proyecto de Acuerdo Generado</h3>
+                  <p className="text-xs text-slate-400">Borrador generado por IA — requiere revisión jurídica</p>
+                </div>
+              </div>
+              <button onClick={()=>setShowModal(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                <Icon d={icons.x} size={18}/>
+              </button>
+            </div>
+            <div className="p-5 overflow-y-auto flex-1">
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 mb-4 text-xs text-amber-700 dark:text-amber-300 flex items-start gap-2">
+                <Icon d={icons.alert} size={14} className="shrink-0 mt-0.5"/>
+                Este documento es un borrador generado automáticamente. Debe ser revisado y validado por el equipo jurídico antes de su radicación.
+              </div>
+              <pre className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap font-mono leading-relaxed">{proyectoGenerado}</pre>
+            </div>
+            <div className="p-5 border-t border-slate-100 dark:border-slate-700 flex gap-2">
+              <button className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-all">
+                <Icon d={icons.upload} size={13}/>Exportar Word
+              </button>
+              <button className="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all">
+                Enviar a Revisión
+              </button>
+              <button onClick={()=>setShowModal(false)} className="ml-auto px-4 py-2 text-sm text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── TRAZABILIDAD (INTERACTIVA) ───────────────────────────────────────────────
+const TRAZA_DETAIL = {
+  1: {
+    titulo:'Normas Superiores Aplicables',
+    items:[
+      { nombre:'Ley 1819/2016', desc:'Reforma tributaria estructural. Art. 345 modifica base gravable ICA servicios financieros.', estado:'vigente', tributo:'ICA' },
+      { nombre:'Ley 2277/2022', desc:'Art. 84 actualiza retención en ICA para grandes contribuyentes. Incorpora nuevas tarifas.', estado:'vigente', tributo:'ICA' },
+      { nombre:'Ley 2381/2024 (MFMP)', desc:'Marco Fiscal de Mediano Plazo. Fija criterios para tarifas prediales rurales y proyecciones de transferencias.', estado:'vigente', tributo:'Predial' },
+      { nombre:'Sentencia C-144/2023', desc:'Corte Constitucional. Exige distinción entre construcción nueva y reforma en delineación urbana.', estado:'vigente', tributo:'Delineación' },
+      { nombre:'Resolución CREG 174/2021', desc:'Metodología de liquidación contribución alumbrado público. Actualiza fórmula de cálculo.', estado:'vigente', tributo:'Alumbrado' },
+    ]
+  },
+  2: {
+    titulo:'Brechas Normativas Detectadas',
+    items:[
+      { nombre:'B001 — ICA Base Gravable', desc:'Acuerdo 012/2009 no refleja modificaciones de Ley 1819/2016. Impacto: $1.240M/año.', estado:'critico', tributo:'ICA' },
+      { nombre:'B002 — Predial Rural', desc:'Acuerdo 018/2015 sin alinear con MFMP 2024. Tarifas diferenciales desactualizadas. Impacto: $870M/año.', estado:'critico', tributo:'Predial' },
+      { nombre:'B003 — Delineación Urbana', desc:'Hecho generador no diferenciado según C-144/2023. Riesgo de nulidad de liquidaciones. Impacto: $420M/año.', estado:'medio', tributo:'Delineación' },
+      { nombre:'B004 — Alumbrado Público', desc:'Metodología de liquidación desactualizada (CREG 174/2021). Impacto: $190M/año.', estado:'resuelto', tributo:'Alumbrado' },
+    ]
+  },
+  3: {
+    titulo:'Proyectos de Acuerdo en Elaboración',
+    items:[
+      { nombre:'Proy. Acuerdo — ICA 2026', desc:'Borrador generado. Modifica Acuerdo 012/2009 para armonizar base gravable servicios financieros.', estado:'borrador', tributo:'ICA' },
+      { nombre:'Proy. Acuerdo — Predial Rural', desc:'En revisión jurídica. Actualiza tarifas diferenciales según MFMP 2024.', estado:'revision', tributo:'Predial' },
+      { nombre:'Proy. Acuerdo — Delineación', desc:'Pendiente generación. Requiere incorporar criterios C-144/2023.', estado:'pendiente', tributo:'Delineación' },
+    ]
+  },
+  4: {
+    titulo:'Procedimientos Operativos Impactados',
+    items:[
+      { nombre:'PR-ICA-003 — Liquidación ICA', desc:'Actualizar fórmula de base gravable para servicios financieros. Responsable: Coord. Fiscal.', estado:'pendiente', tributo:'ICA' },
+      { nombre:'PR-PRE-001 — Predial Rural', desc:'Revisar tablas de tarifas diferenciales. Actualizar criterios de estratificación.', estado:'pendiente', tributo:'Predial' },
+      { nombre:'PR-DU-002 — Delineación', desc:'Separar formularios de liquidación: construcción nueva vs. reforma.', estado:'pendiente', tributo:'Delineación' },
+      { nombre:'PR-COB-005 — Cobro Coactivo', desc:'Actualizar mandamiento de pago con nueva base normativa.', estado:'en_proceso', tributo:'Cobro' },
+    ]
+  },
+  5: {
+    titulo:'Ajustes Pendientes en Sistemas',
+    items:[
+      { nombre:'SIS-LIQ-01 — Motor Liquidación', desc:'Parametrizar nuevas fórmulas de base gravable ICA en sistema de facturación.', estado:'pendiente', tributo:'ICA' },
+      { nombre:'SIS-FOR-02 — Formularios', desc:'Actualizar formularios de declaración ICA con nuevos campos requeridos.', estado:'pendiente', tributo:'ICA' },
+      { nombre:'SIS-TAR-03 — Tablas Predial', desc:'Cargar nuevas tarifas diferenciales predial rural en sistema catastral.', estado:'pendiente', tributo:'Predial' },
+      { nombre:'SIS-REP-04 — Reportes DIAN', desc:'Configurar nuevo formato de cruce de información Circular DIAN 012/2026.', estado:'pendiente', tributo:'Transversal' },
+    ]
+  }
+};
+
+function TrazabilidadView() {
+  const [activeStep, setActiveStep] = useState(null);
+  const estadoColor = { vigente:'text-emerald-600', critico:'text-red-500', medio:'text-amber-500', resuelto:'text-emerald-500', borrador:'text-amber-500', revision:'text-blue-500', pendiente:'text-slate-400', en_proceso:'text-amber-500' };
+  const estadoBg = { vigente:'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800', critico:'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800', medio:'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800', resuelto:'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800', borrador:'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800', revision:'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800', pendiente:'bg-slate-50 dark:bg-slate-700/50 border-slate-200 dark:border-slate-700', en_proceso:'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800' };
+
+  const steps = [
+    { id:1, label:'Norma Superior', icon:'layers', color:'bg-indigo-500', ring:'ring-indigo-300', count:5, pct:100 },
+    { id:2, label:'Brecha Detectada', icon:'alert', color:'bg-red-500', ring:'ring-red-300', count:4, pct:100 },
+    { id:3, label:'Proyecto de Acuerdo', icon:'file', color:'bg-amber-500', ring:'ring-amber-300', count:3, pct:67 },
+    { id:4, label:'Procedimiento Operativo', icon:'settings', color:'bg-violet-400', ring:'ring-violet-300', count:4, pct:25 },
+    { id:5, label:'Ajuste en Sistema', icon:'cpu', color:'bg-slate-400', ring:'ring-slate-300', count:4, pct:0 },
+  ];
+
+  return (
+    <div className="space-y-5">
+      <p className="text-sm text-slate-500 dark:text-slate-400">Flujo de armonización normativa — Haga clic en cada fase para ver el detalle de elementos.</p>
+
+      {/* Flow visual */}
+      <div className="flex flex-wrap items-start gap-2">
+        {steps.map((s,i)=>(
+          <React.Fragment key={s.id}>
+            <button onClick={()=>setActiveStep(activeStep===s.id?null:s.id)}
+              className={`flex-1 min-w-[140px] p-4 rounded-xl border-2 transition-all text-left ${activeStep===s.id?`border-indigo-400 dark:border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 ring-2 ${s.ring}`:'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300'}`}>
+              <div className="flex items-center justify-between mb-2">
+                <div className={`w-8 h-8 rounded-lg ${s.color} flex items-center justify-center text-white`}>
+                  <Icon d={icons[s.icon]} size={14}/>
+                </div>
+                <span className="text-xs font-bold text-slate-400">Fase {s.id}</span>
+              </div>
+              <div className="text-xs font-semibold text-slate-800 dark:text-white mb-2">{s.label}</div>
+              <div className="h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden mb-1">
+                <div className={`h-full ${s.color} rounded-full transition-all`} style={{width:`${s.pct}%`}}/>
+              </div>
+              <div className="flex justify-between text-xs text-slate-400">
+                <span>{s.count} elementos</span>
+                <span className="font-medium">{s.pct}%</span>
+              </div>
+            </button>
+            {i < steps.length-1 && (
+              <div className="hidden lg:flex items-center text-xl text-slate-300 dark:text-slate-600 pt-6">→</div>
+            )}
+          </React.Fragment>
+        ))}
+      </div>
+
+      {/* Detail panel */}
+      {activeStep && TRAZA_DETAIL[activeStep] && (
+        <Card className="p-5 animate-fade-in border-2 border-indigo-100 dark:border-indigo-900/40">
+          <h4 className="font-semibold text-slate-800 dark:text-white text-sm mb-4 flex items-center gap-2">
+            <Icon d={icons[steps[activeStep-1].icon]} size={15} className="text-indigo-500"/>
+            {TRAZA_DETAIL[activeStep].titulo}
+          </h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {TRAZA_DETAIL[activeStep].items.map((item,i)=>(
+              <div key={i} className={`p-3 rounded-xl border ${estadoBg[item.estado]}`}>
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">{item.nombre}</span>
+                  <Badge label={item.tributo} color="indigo"/>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">{item.desc}</p>
+                <div className={`text-xs font-medium mt-1.5 capitalize ${estadoColor[item.estado]}`}>● {item.estado.replace('_',' ')}</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ─── MODULE 2: IA / CHAT ──────────────────────────────────────────────────────
+function IAModule() {
+  const [tab, setTab] = useState('chat');
+  const [messages, setMessages] = useState(CHAT_INICIAL);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const chatRef = useRef(null);
+
+  const IA_RESPONSES = {
+    default: { texto:'Basándome en el marco normativo vigente y la jurisprudencia aplicable, le puedo indicar que esta materia está regulada por las disposiciones del Estatuto Tributario Nacional y los Acuerdos municipales. Para una respuesta más precisa, le recomiendo contrastar con el análisis de brechas del Módulo 1.', fuentes:['Estatuto Tributario Nacional','Ley 1437/2011'] },
+    ica: { texto:'El Impuesto de Industria y Comercio (ICA) en su municipio está regulado por el Acuerdo 012 de 2009, el cual presenta una brecha crítica con la Ley 1819/2016. Específicamente, el Artículo 345 de la Ley 1819 modificó la base gravable para servicios financieros, estableciendo que será el promedio mensual de activos. El impacto estimado de esta brecha no actualizada asciende a $1.240 millones de pesos anuales.', fuentes:['Ley 1819/2016 Art. 345','Ley 2277/2022 Art. 84','Acuerdo Municipal 012/2009'] },
+    predial: { texto:'El impuesto Predial Unificado está sujeto a los límites del Artículo 6° de la Ley 44 de 1990, modificado por la Ley 1995 de 2019. Las tarifas deben oscilar entre el 1 por mil y el 16 por mil del avalúo catastral. Para inmuebles rurales, la Ley 2381/2024 (MFMP) introdujo criterios de diferenciación que su municipio aún no ha incorporado.', fuentes:['Ley 44/1990 Art. 6','Ley 1995/2019','Ley 2381/2024'] },
+    cobro: { texto:'El proceso de cobro coactivo municipal se rige por los Artículos 823 a 843 del Estatuto Tributario y la Ley 1066 de 2006. El mandamiento de pago es el acto que da inicio formal al proceso. Según los datos de su municipio, el cobro coactivo tiene una eficiencia del 58%, siendo el acuerdo de pago el procedimiento más eficiente con un 84%.', fuentes:['E.T. Art. 823-843','Ley 1066/2006','Circular DIAN 012/2026'] },
+  };
+
+  const getResponse = (q) => {
+    const ql = q.toLowerCase();
+    if (ql.includes('ica') || ql.includes('industria')) return IA_RESPONSES.ica;
+    if (ql.includes('predial') || ql.includes('catastro') || ql.includes('rural')) return IA_RESPONSES.predial;
+    if (ql.includes('cobro') || ql.includes('coactivo') || ql.includes('proceso')) return IA_RESPONSES.cobro;
+    return IA_RESPONSES.default;
+  };
+
+  const sendMessage = () => {
+    if (!input.trim()) return;
+    const userMsg = { rol:'user', texto:input };
+    setMessages(m=>[...m, userMsg]);
+    setInput('');
+    setLoading(true);
+    setTimeout(()=>{
+      const resp = getResponse(input);
+      setMessages(m=>[...m, { rol:'ai', ...resp }]);
+      setLoading(false);
+    }, 1400);
+  };
+
+  useEffect(()=>{ if(chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; },[messages,loading]);
+
+  return (
+    <div className="animate-fade-in space-y-6">
+      <SectionTitle icon="cpu" title="Centro de Aprendizaje e IA Transversal" subtitle="Asistente normativo inteligente y repositorio de conocimiento institucional"/>
+
+      <div className="flex gap-1 bg-slate-100 dark:bg-slate-700/50 rounded-xl p-1 w-fit">
+        {[{id:'chat',label:'Chatbot Normativo',icon:'message'},{id:'repo',label:'Repositorio de Conceptos',icon:'book'}].map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${tab===t.id?'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm':'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
+            <Icon d={icons[t.icon]} size={14}/>{t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'chat' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <Card className="lg:col-span-2 flex flex-col" style={{height:'520px'}}>
+            <div className="p-4 border-b border-slate-100 dark:border-slate-700 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center text-indigo-600">
+                <Icon d={icons.cpu} size={14}/>
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-slate-800 dark:text-white">Asistente Normativo SRIPT</div>
+                <div className="flex items-center gap-1.5 text-xs text-emerald-500">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse-dot"/>En línea
+                </div>
+              </div>
+            </div>
+            <div ref={chatRef} className="flex-1 p-4 overflow-y-auto space-y-4">
+              {messages.map((m,i)=>(
+                <div key={i} className={`flex ${m.rol==='user'?'justify-end':'justify-start'}`}>
+                  <div className={`max-w-[85%] ${m.rol==='user'?'chat-bubble-user':'chat-bubble-ai dark:text-white'} p-3 text-sm`}>
+                    {m.texto}
+                    {m.fuentes && m.fuentes.length > 0 && (
+                      <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-600 space-y-1">
+                        {m.fuentes.map((f,j)=>(
+                          <div key={j} className="flex items-center gap-1 text-xs text-indigo-500 dark:text-indigo-400">
+                            <Icon d={icons.link} size={10}/>
+                            <span>{f}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {loading && (
+                <div className="flex justify-start">
+                  <div className="chat-bubble-ai dark:text-white p-3 flex items-center gap-2">
+                    {[0,1,2].map(i=>(
+                      <span key={i} className="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-500 animate-pulse-dot" style={{animationDelay:`${i*0.2}s`}}/>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="p-4 border-t border-slate-100 dark:border-slate-700 flex gap-2">
+              <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&sendMessage()}
+                placeholder="Consulte sobre ICA, Predial, procesos de cobro..."
+                className="flex-1 text-sm border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-slate-700 dark:text-white"/>
+              <button onClick={sendMessage} className="w-10 h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center hover:bg-indigo-700 transition-all shrink-0">
+                <Icon d={icons.send} size={15}/>
+              </button>
+            </div>
+          </Card>
+
+          <div className="space-y-3">
+            <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300">Preguntas frecuentes</h4>
+            {[
+              '¿Cuál es la base gravable correcta del ICA para servicios financieros?',
+              '¿Cómo actualizo las tarifas de Predial rural?',
+              '¿Cuáles son las etapas del cobro coactivo?',
+              '¿Qué dice la Sentencia C-144/2023 sobre delineación urbana?',
+            ].map((q,i)=>(
+              <button key={i} onClick={()=>{setInput(q);}}
+                className="w-full text-left p-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all text-xs text-slate-600 dark:text-slate-400">
+                {q}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {tab === 'repo' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {CONCEPTOS.map(c=>(
+            <Card key={c.id} className="p-5">
+              <div className="flex items-start justify-between mb-3">
+                <Badge label={c.cat} color="indigo"/>
+                <Icon d={icons.file} size={14} className="text-slate-400"/>
+              </div>
+              <h4 className="font-semibold text-slate-800 dark:text-white text-sm mb-2">{c.titulo}</h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-3">{c.resumen}</p>
+              <div className="flex flex-wrap gap-1">
+                {c.normas.map((n,i)=>(
+                  <span key={i} className="text-xs bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 px-2 py-0.5 rounded-full">{n}</span>
+                ))}
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── SIMULADOR DE IMPACTO ─────────────────────────────────────────────────────
+function SimuladorImpacto() {
+  const BASE = 7380;
+  const [ajustes, setAjustes] = useState({ ica:0, predial:0, delineacion:0, alumbrado:0 });
+  const [eficienciaCobro, setEficienciaCobro] = useState(65);
+  const [fiscalizacion, setFiscalizacion] = useState(40);
+
+  const maxImpacto = { ica:1240, predial:870, delineacion:420, alumbrado:190 };
+  const totalAjuste = Object.entries(ajustes).reduce((acc,[k,v])=> acc + Math.round(maxImpacto[k]*v/100), 0);
+  const impactoEficiencia = Math.round((eficienciaCobro - 65) * 18);
+  const impactoFisc = Math.round((fiscalizacion - 40) * 12);
+  const totalProyectado = BASE + totalAjuste + impactoEficiencia + impactoFisc;
+  const variacion = ((totalProyectado - BASE) / BASE * 100).toFixed(1);
+
+  const sliders = [
+    { key:'ica', label:'ICA — Ajuste base gravable', max:maxImpacto.ica, color:'bg-indigo-500', light:'bg-indigo-100 dark:bg-indigo-900/30' },
+    { key:'predial', label:'Predial — Actualización tarifas rurales', max:maxImpacto.predial, color:'bg-sky-500', light:'bg-sky-100 dark:bg-sky-900/30' },
+    { key:'delineacion', label:'Delineación Urbana — Hecho generador', max:maxImpacto.delineacion, color:'bg-violet-500', light:'bg-violet-100 dark:bg-violet-900/30' },
+    { key:'alumbrado', label:'Alumbrado Público — Metodología CREG', max:maxImpacto.alumbrado, color:'bg-amber-500', light:'bg-amber-100 dark:bg-amber-900/30' },
+  ];
+
+  return (
+    <div className="space-y-5 animate-fade-in">
+      <div className="bg-gradient-to-br from-indigo-600 to-violet-600 rounded-2xl p-5 text-white">
+        <div className="text-xs font-semibold uppercase tracking-wide opacity-75 mb-1">Recaudo Proyectado (Simulación)</div>
+        <div className="text-4xl font-bold mb-1">${totalProyectado.toLocaleString('es-CO')}M COP</div>
+        <div className={`text-sm font-medium ${variacion >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+          {variacion >= 0 ? '+' : ''}{variacion}% vs. recaudo real 2025 (${BASE.toLocaleString('es-CO')}M)
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-3">
+          <div className="bg-white/10 rounded-xl p-3 text-center">
+            <div className="text-lg font-bold">${totalAjuste.toLocaleString('es-CO')}M</div>
+            <div className="text-xs opacity-75">Armonización normativa</div>
+          </div>
+          <div className="bg-white/10 rounded-xl p-3 text-center">
+            <div className="text-lg font-bold">${Math.max(0,impactoEficiencia).toLocaleString('es-CO')}M</div>
+            <div className="text-xs opacity-75">Eficiencia de cobro</div>
+          </div>
+          <div className="bg-white/10 rounded-xl p-3 text-center">
+            <div className="text-lg font-bold">${Math.max(0,impactoFisc).toLocaleString('es-CO')}M</div>
+            <div className="text-xs opacity-75">Fiscalización</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div className="space-y-4">
+          <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+            <Icon d={icons.scale} size={14} className="text-indigo-500"/>
+            Impacto por Ajuste Normativo
+          </h4>
+          {sliders.map(s=>(
+            <div key={s.key} className={`p-4 rounded-xl ${s.light}`}>
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-xs font-medium text-slate-700 dark:text-slate-300">{s.label}</span>
+                <span className="text-xs font-bold text-slate-800 dark:text-white">
+                  +${Math.round(maxImpacto[s.key]*ajustes[s.key]/100).toLocaleString('es-CO')}M
+                </span>
+              </div>
+              <input type="range" min="0" max="100" value={ajustes[s.key]}
+                onChange={e=>setAjustes(a=>({...a,[s.key]:+e.target.value}))}
+                className="w-full h-2 rounded-full appearance-none cursor-pointer"
+                style={{accentColor: s.key==='ica'?'#6366f1':s.key==='predial'?'#0ea5e9':s.key==='delineacion'?'#8b5cf6':'#f59e0b'}}/>
+              <div className="flex justify-between text-xs text-slate-400 mt-1">
+                <span>0%</span>
+                <span className="font-medium text-slate-600 dark:text-slate-400">{ajustes[s.key]}% implementado</span>
+                <span>Max ${maxImpacto[s.key]}M</span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="space-y-4">
+          <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+            <Icon d={icons.settings} size={14} className="text-indigo-500"/>
+            Palancas Operativas
+          </h4>
+          <Card className="p-4">
+            <div className="flex justify-between mb-2">
+              <span className="text-xs font-medium text-slate-700 dark:text-slate-300">Eficiencia de Cobro Coactivo</span>
+              <span className="text-xs font-bold text-slate-800 dark:text-white">{eficienciaCobro}%</span>
+            </div>
+            <input type="range" min="40" max="95" value={eficienciaCobro} onChange={e=>setEficienciaCobro(+e.target.value)}
+              className="w-full h-2 rounded-full appearance-none cursor-pointer" style={{accentColor:'#10b981'}}/>
+            <p className="text-xs text-slate-400 mt-2">Baseline actual: 65% · Incremento estimado: +$18M por punto porcentual</p>
+          </Card>
+          <Card className="p-4">
+            <div className="flex justify-between mb-2">
+              <span className="text-xs font-medium text-slate-700 dark:text-slate-300">Cobertura de Fiscalización</span>
+              <span className="text-xs font-bold text-slate-800 dark:text-white">{fiscalizacion}%</span>
+            </div>
+            <input type="range" min="20" max="90" value={fiscalizacion} onChange={e=>setFiscalizacion(+e.target.value)}
+              className="w-full h-2 rounded-full appearance-none cursor-pointer" style={{accentColor:'#6366f1'}}/>
+            <p className="text-xs text-slate-400 mt-2">Baseline actual: 40% · Incremento estimado: +$12M por punto porcentual</p>
+          </Card>
+
+          <Card className="p-4 bg-slate-50 dark:bg-slate-700/50">
+            <h5 className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-3 uppercase tracking-wide">Resumen del Escenario</h5>
+            <div className="space-y-2">
+              {[
+                { label:'Base 2025', val:`$${BASE.toLocaleString()}M`, color:'text-slate-600 dark:text-slate-400' },
+                { label:'+ Armonización normativa', val:`+$${totalAjuste.toLocaleString()}M`, color:'text-indigo-600 dark:text-indigo-400' },
+                { label:'+ Eficiencia cobro', val:`+$${Math.max(0,impactoEficiencia).toLocaleString()}M`, color:'text-emerald-600 dark:text-emerald-400' },
+                { label:'+ Fiscalización', val:`+$${Math.max(0,impactoFisc).toLocaleString()}M`, color:'text-violet-600 dark:text-violet-400' },
+              ].map((r,i)=>(
+                <div key={i} className="flex justify-between text-xs">
+                  <span className="text-slate-500 dark:text-slate-400">{r.label}</span>
+                  <span className={`font-semibold ${r.color}`}>{r.val}</span>
+                </div>
+              ))}
+              <div className="border-t border-slate-200 dark:border-slate-600 pt-2 flex justify-between text-sm">
+                <span className="font-semibold text-slate-700 dark:text-slate-300">Total Proyectado</span>
+                <span className="font-bold text-indigo-600 dark:text-indigo-400">${totalProyectado.toLocaleString()}M</span>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MODULE 3: ANALÍTICA ──────────────────────────────────────────────────────
+function AnaliticaModule() {
+  const [tab, setTab] = useState('dashboard');
+  return (
+    <div className="animate-fade-in space-y-6">
+      <SectionTitle icon="chart" title="Analítica de Impacto Económico" subtitle="Econometría del recaudo tributario y análisis costo-beneficio"/>
+      <div className="flex gap-1 bg-slate-100 dark:bg-slate-700/50 rounded-xl p-1 w-fit">
+        {[{id:'dashboard',label:'Dashboard',icon:'chart'},{id:'simulador',label:'Simulador de Impacto',icon:'zap'}].map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${tab===t.id?'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm':'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
+            <Icon d={icons[t.icon]} size={14}/>{t.label}
+          </button>
+        ))}
+      </div>
+      {tab === 'simulador' && <SimuladorImpacto/>}
+      {tab === 'dashboard' && <>
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { label:'Recaudo Real 2025', value:'$7.380M', sub:'vs $7.400M meta', color:'text-slate-800 dark:text-white' },
+          { label:'Proyección Post-Ajuste', value:'$9.850M', sub:'+33.5% vs 2025', color:'text-emerald-600 dark:text-emerald-400' },
+          { label:'Impacto Brechas', value:'$2.720M', sub:'Pérdida anual estimada', color:'text-red-600 dark:text-red-400' },
+          { label:'ROI Actualización', value:'8.4x', sub:'Retorno sobre inversión', color:'text-indigo-600 dark:text-indigo-400' },
+        ].map((k,i)=>(
+          <Card key={i} className="p-5">
+            <div className="text-xs text-slate-500 dark:text-slate-400 mb-2 font-medium">{k.label}</div>
+            <div className={`text-2xl font-bold ${k.color}`}>{k.value}</div>
+            <div className="text-xs text-slate-400 mt-1">{k.sub}</div>
+          </Card>
+        ))}
+      </div>
+
+      {/* Recaudo tendencia */}
+      <Card className="p-5">
+        <h3 className="font-semibold text-slate-800 dark:text-white mb-1 text-sm">Tendencia de Recaudo — Histórico y Proyección (M COP)</h3>
+        <p className="text-xs text-slate-400 mb-4">*Proyecciones 2026-2027 incluyen impacto estimado de armonización normativa</p>
+        <ResponsiveContainer width="100%" height={260}>
+          <AreaChart data={RECAUDO_DATA}>
+            <defs>
+              <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25}/><stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+              </linearGradient>
+              <linearGradient id="g2" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#10b981" stopOpacity={0.25}/><stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9"/>
+            <XAxis dataKey="year" tick={{fontSize:12}} tickLine={false}/>
+            <YAxis tick={{fontSize:12}} tickLine={false} axisLine={false} tickFormatter={v=>`$${v}M`}/>
+            <Tooltip formatter={(v,n)=>v?[`$${v}M`,n]:['-',n]} contentStyle={{borderRadius:'12px',border:'1px solid #e2e8f0',fontSize:'12px'}}/>
+            <Legend iconSize={10} wrapperStyle={{fontSize:'12px'}}/>
+            <Area type="monotone" dataKey="real" name="Recaudo Real" stroke="#6366f1" fill="url(#g1)" strokeWidth={2.5}/>
+            <Area type="monotone" dataKey="proyectado" name="Proyectado (c/ajuste)" stroke="#10b981" fill="url(#g2)" strokeWidth={2.5} strokeDasharray="6 3"/>
+            <Line type="monotone" dataKey="meta" name="Meta" stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 4" dot={false}/>
+          </AreaChart>
+        </ResponsiveContainer>
+      </Card>
+
+      {/* Costo-beneficio y eficiencia */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card className="p-5">
+          <h3 className="font-semibold text-slate-800 dark:text-white mb-4 text-sm">Eficiencia de Procedimientos de Cobro (%)</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={COBRO_DATA} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false}/>
+              <XAxis type="number" tick={{fontSize:11}} domain={[0,100]}/>
+              <YAxis type="category" dataKey="proceso" tick={{fontSize:10}} width={110}/>
+              <Tooltip contentStyle={{borderRadius:'12px',border:'1px solid #e2e8f0',fontSize:'12px'}}/>
+              <Legend iconSize={10} wrapperStyle={{fontSize:'11px'}}/>
+              <Bar dataKey="eficiencia" name="Eficiencia %" fill="#6366f1" radius={[0,6,6,0]}/>
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+
+        <Card className="p-5">
+          <h3 className="font-semibold text-slate-800 dark:text-white mb-4 text-sm">Costo Operativo vs. Eficiencia por Proceso</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={COBRO_DATA}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9"/>
+              <XAxis dataKey="proceso" tick={{fontSize:9}} tickLine={false}/>
+              <YAxis tick={{fontSize:11}} tickLine={false} axisLine={false}/>
+              <Tooltip contentStyle={{borderRadius:'12px',border:'1px solid #e2e8f0',fontSize:'12px'}}/>
+              <Legend iconSize={10} wrapperStyle={{fontSize:'11px'}}/>
+              <Bar dataKey="eficiencia" name="Eficiencia %" fill="#10b981" radius={[6,6,0,0]}/>
+              <Bar dataKey="costo" name="Costo Relativo" fill="#f43f5e" radius={[6,6,0,0]}/>
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+      </div>
+
+      {/* Impacto por brecha */}
+      <Card className="p-5">
+        <h3 className="font-semibold text-slate-800 dark:text-white mb-4 text-sm">Impacto Económico por Brecha Normativa (M COP/año)</h3>
+        <div className="space-y-3">
+          {BRECHAS.map(b=>{
+            const val = parseInt(b.impacto.replace(/[^0-9]/g,''));
+            const pct = Math.round(val/2720*100);
+            return (
+              <div key={b.id} className="flex items-center gap-4">
+                <div className="w-36 shrink-0">
+                  <div className="text-xs font-medium text-slate-700 dark:text-slate-300">{b.tributo}</div>
+                  <div className="text-xs text-slate-400">{b.norma_local}</div>
+                </div>
+                <div className="flex-1">
+                  <div className="h-6 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full flex items-center justify-end pr-2 text-white text-xs font-medium transition-all ${b.gravedad==='alta'?'bg-red-500':b.gravedad==='media'?'bg-amber-400':'bg-emerald-500'}`}
+                      style={{width:`${pct}%`}}>
+                      {pct}%
+                    </div>
+                  </div>
+                </div>
+                <div className="w-24 text-right shrink-0">
+                  <div className="text-sm font-bold text-slate-800 dark:text-white">{b.impacto}</div>
+                  <GravedadBadge g={b.gravedad}/>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+      </>}
+    </div>
+  );
+}
+
+// ─── PROCEDIMIENTOS OPERATIVOS ────────────────────────────────────────────────
+const PROCEDIMIENTOS = [
+  {
+    id:'PR-ICA-003', nombre:'Liquidación ICA — Base Gravable Servicios Financieros',
+    tributo:'ICA', responsable:'Coordinador Fiscal', estado:'pendiente',
+    norma_origen:'Ley 1819/2016 Art. 345', brecha:'B001',
+    pasos:[
+      { n:1, desc:'Identificar contribuyentes del sector financiero inscritos en el RUT municipal', resp:'Oficial de Fiscalización', dias:5 },
+      { n:2, desc:'Calcular promedio mensual de activos según estados financieros declarados', resp:'Analista Tributario', dias:10 },
+      { n:3, desc:'Aplicar tarifa diferencial según nueva base gravable (Acuerdo actualizado)', resp:'Jefe de Liquidación', dias:3 },
+      { n:4, desc:'Notificar liquidación oficial y generar factura de cobro', resp:'Secretaria de Hacienda', dias:2 },
+      { n:5, desc:'Registrar en sistema y actualizar cartera tributaria', resp:'Sistemas', dias:1 },
+    ]
+  },
+  {
+    id:'PR-PRE-001', nombre:'Determinación Tarifa Predial — Zonas Rurales',
+    tributo:'Predial', responsable:'Jefe de Rentas', estado:'pendiente',
+    norma_origen:'Ley 2381/2024 + Ley 44/1990', brecha:'B002',
+    pasos:[
+      { n:1, desc:'Obtener avalúos catastrales actualizados del IGAC para predios rurales', resp:'Jefe de Rentas', dias:7 },
+      { n:2, desc:'Clasificar predios por uso (agrícola, ganadero, forestal, baldío)', resp:'Analista Catastral', dias:5 },
+      { n:3, desc:'Aplicar tabla de tarifas diferenciales del Acuerdo actualizado', resp:'Analista Tributario', dias:3 },
+      { n:4, desc:'Validar que tarifas aplicadas estén dentro del rango legal (1‰ - 16‰)', resp:'Jefe Jurídico', dias:2 },
+      { n:5, desc:'Emitir facturación predial y gestionar proceso de cobro', resp:'Secretaría de Hacienda', dias:3 },
+    ]
+  },
+  {
+    id:'PR-COB-005', nombre:'Cobro Coactivo — Mandamiento de Pago',
+    tributo:'Transversal', responsable:'Abogado Cobro Coactivo', estado:'en_proceso',
+    norma_origen:'E.T. Art. 823-843 + Ley 1066/2006', brecha:null,
+    pasos:[
+      { n:1, desc:'Verificar que la obligación tributaria esté en firme y sea exigible', resp:'Abogado Coactivo', dias:2 },
+      { n:2, desc:'Expedir mandamiento de pago con cuantía, base y fundamento normativo', resp:'Funcionario Ejecutor', dias:3 },
+      { n:3, desc:'Notificar al deudor y conceder término de 10 días para pago o excepciones', resp:'Notificador', dias:1 },
+      { n:4, desc:'Si hay pago: archivar expediente. Si no: decretar medidas cautelares', resp:'Abogado Coactivo', dias:10 },
+      { n:5, desc:'Remate de bienes o acuerdo de pago — registrar resultado en sistema', resp:'Secretaría de Hacienda', dias:30 },
+    ]
+  },
+];
+
+function ProcedimientosTab() {
+  const [selected, setSelected] = useState(null);
+  const estadoColor = { pendiente:'text-slate-400 bg-slate-100 dark:bg-slate-700', en_proceso:'text-amber-600 bg-amber-100 dark:bg-amber-900/30', completado:'text-emerald-600 bg-emerald-100 dark:bg-emerald-900/30' };
+
+  return (
+    <div className="space-y-4 animate-fade-in">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {PROCEDIMIENTOS.map(p=>(
+          <button key={p.id} onClick={()=>setSelected(selected?.id===p.id?null:p)}
+            className={`text-left p-4 rounded-xl border-2 transition-all ${selected?.id===p.id?'border-indigo-400 bg-indigo-50 dark:bg-indigo-900/20':'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300'}`}>
+            <div className="flex items-start justify-between mb-2">
+              <span className="font-mono text-xs text-slate-400">{p.id}</span>
+              <Badge label={p.tributo} color="indigo"/>
+            </div>
+            <div className="font-semibold text-sm text-slate-800 dark:text-white mb-1 leading-tight">{p.nombre}</div>
+            <div className="text-xs text-slate-400 mb-2">{p.responsable}</div>
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${estadoColor[p.estado]}`}>
+              {p.estado.replace('_',' ')}
+            </span>
+            {p.brecha && <div className="text-xs text-indigo-500 dark:text-indigo-400 mt-1">← Brecha {p.brecha}</div>}
+          </button>
+        ))}
+      </div>
+
+      {selected && (
+        <Card className="p-5 animate-fade-in border-2 border-indigo-100 dark:border-indigo-900/40">
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <div className="font-semibold text-slate-800 dark:text-white">{selected.nombre}</div>
+              <div className="text-xs text-slate-400 mt-0.5">Base normativa: {selected.norma_origen}</div>
+            </div>
+            <button onClick={()=>setSelected(null)} className="text-slate-400 hover:text-slate-600"><Icon d={icons.x} size={16}/></button>
+          </div>
+          <div className="relative">
+            {selected.pasos.map((paso, i)=>(
+              <div key={paso.n} className="flex gap-4 mb-4 last:mb-0">
+                <div className="flex flex-col items-center">
+                  <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center text-xs font-bold shrink-0">{paso.n}</div>
+                  {i < selected.pasos.length-1 && <div className="w-0.5 h-full bg-slate-100 dark:bg-slate-700 mt-1"/>}
+                </div>
+                <div className="pb-4 flex-1">
+                  <p className="text-sm text-slate-700 dark:text-slate-300">{paso.desc}</p>
+                  <div className="flex gap-3 mt-1.5 text-xs text-slate-400">
+                    <span className="flex items-center gap-1"><Icon d={icons.eye} size={10}/>{paso.resp}</span>
+                    <span className="flex items-center gap-1"><Icon d={icons.bell} size={10}/>{paso.dias} día{paso.dias>1?'s':''}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ─── CRONOGRAMA DE ARMONIZACIÓN ───────────────────────────────────────────────
+function CronogramaTab() {
+  const hitos = [
+    { mes:'Abril 2026', items:[
+      { label:'Análisis de brechas completado', done:true, tipo:'normativo' },
+      { label:'Generación borrador Proy. Acuerdo ICA', done:true, tipo:'normativo' },
+      { label:'Alerta: Decreto Reglamentario 1071/2026', done:true, tipo:'alerta' },
+    ]},
+    { mes:'Mayo 2026', items:[
+      { label:'Revisión jurídica Proy. Acuerdo ICA', done:false, tipo:'normativo' },
+      { label:'Generación Proy. Acuerdo Predial Rural', done:false, tipo:'normativo' },
+      { label:'Actualización PR-ICA-003', done:false, tipo:'proceso' },
+    ]},
+    { mes:'Junio 2026', items:[
+      { label:'Radicación Proyectos de Acuerdo ante Concejo', done:false, tipo:'normativo' },
+      { label:'Capacitación funcionarios nueva normativa', done:false, tipo:'capacitacion' },
+      { label:'Actualización sistema liquidación ICA', done:false, tipo:'sistemas' },
+    ]},
+    { mes:'Julio–Agosto 2026', items:[
+      { label:'Aprobación Acuerdo ICA por el Concejo', done:false, tipo:'normativo' },
+      { label:'Aprobación Acuerdo Predial Rural', done:false, tipo:'normativo' },
+      { label:'Entrada en vigencia nueva normativa', done:false, tipo:'hito' },
+    ]},
+    { mes:'Sep–Dic 2026', items:[
+      { label:'Primera liquidación bajo nueva normativa', done:false, tipo:'proceso' },
+      { label:'Medición impacto recaudo Q3 2026', done:false, tipo:'analitica' },
+      { label:'Cierre armonización normativa 2026', done:false, tipo:'hito' },
+    ]},
+  ];
+  const tipoColor = { normativo:'bg-indigo-500', proceso:'bg-violet-500', alerta:'bg-red-500', capacitacion:'bg-sky-500', sistemas:'bg-emerald-500', hito:'bg-amber-500', analitica:'bg-orange-500' };
+  const tipoLabel = { normativo:'Normativo', proceso:'Proceso', alerta:'Alerta', capacitacion:'Capacitación', sistemas:'Sistemas', hito:'Hito Clave', analitica:'Analítica' };
+
+  return (
+    <div className="space-y-4 animate-fade-in">
+      <div className="flex flex-wrap gap-2 mb-4">
+        {Object.entries(tipoLabel).map(([k,v])=>(
+          <span key={k} className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
+            <span className={`w-2 h-2 rounded-full ${tipoColor[k]}`}/>
+            {v}
+          </span>
+        ))}
+      </div>
+      <div className="space-y-3">
+        {hitos.map((h,i)=>(
+          <Card key={i} className="p-4">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-2 h-2 rounded-full bg-indigo-500"/>
+              <h4 className="font-semibold text-sm text-slate-800 dark:text-white">{h.mes}</h4>
+              <div className="flex-1 h-px bg-slate-100 dark:bg-slate-700"/>
+              <span className="text-xs text-slate-400">{h.items.filter(x=>x.done).length}/{h.items.length} completados</span>
+            </div>
+            <div className="space-y-2 ml-5">
+              {h.items.map((item,j)=>(
+                <div key={j} className="flex items-center gap-3">
+                  <div className={`w-5 h-5 rounded-full ${item.done?'bg-emerald-500':'bg-slate-100 dark:bg-slate-700 border-2 border-slate-300 dark:border-slate-600'} flex items-center justify-center shrink-0`}>
+                    {item.done && <Icon d={icons.check} size={10} className="text-white"/>}
+                  </div>
+                  <span className={`text-xs ${item.done?'text-slate-500 line-through':'text-slate-700 dark:text-slate-300'}`}>{item.label}</span>
+                  <span className={`ml-auto text-xs px-2 py-0.5 rounded-full text-white ${tipoColor[item.tipo]}`}>{tipoLabel[item.tipo]}</span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── MODULE 4: GOBERNANZA ─────────────────────────────────────────────────────
+function GobernanzaModule() {
+  const [alertas, setAlertas] = useState(ALERTAS);
+  const [filtro, setFiltro] = useState('todas');
+
+  const marcarLeida = (id) => setAlertas(a=>a.map(x=>x.id===id?{...x,leida:true}:x));
+
+  const colorAlerta = { critica:'border-red-500 bg-red-50 dark:bg-red-900/10', alta:'border-amber-400 bg-amber-50 dark:bg-amber-900/10', media:'border-blue-400 bg-blue-50 dark:bg-blue-900/10', baja:'border-slate-300 bg-slate-50 dark:bg-slate-800' };
+  const badgeAlerta = { critica:'red', alta:'amber', media:'indigo', baja:'slate' };
+
+  const filtradas = filtro === 'todas' ? alertas : filtro === 'nuevas' ? alertas.filter(a=>!a.leida) : alertas.filter(a=>a.tipo===filtro);
+
+  return (
+    <div className="animate-fade-in space-y-6">
+      <SectionTitle icon="shield" title="Gobernanza y Centro de Alertas" subtitle="Monitoreo de cambios normativos y alertas de cumplimiento"/>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[
+          { label:'Alertas Nuevas', value:alertas.filter(a=>!a.leida).length, color:'text-red-600', bg:'bg-red-50 dark:bg-red-900/20' },
+          { label:'Críticas', value:alertas.filter(a=>a.tipo==='critica').length, color:'text-red-600', bg:'bg-red-50 dark:bg-red-900/20' },
+          { label:'Alta Prioridad', value:alertas.filter(a=>a.tipo==='alta').length, color:'text-amber-600', bg:'bg-amber-50 dark:bg-amber-900/20' },
+          { label:'Leídas', value:alertas.filter(a=>a.leida).length, color:'text-emerald-600', bg:'bg-emerald-50 dark:bg-emerald-900/20' },
+        ].map((k,i)=>(
+          <Card key={i} className={`p-4 ${k.bg}`}>
+            <div className="text-xs text-slate-500 mb-1 font-medium">{k.label}</div>
+            <div className={`text-3xl font-bold ${k.color}`}>{k.value}</div>
+          </Card>
+        ))}
+      </div>
+
+      <div className="flex gap-2 flex-wrap">
+        {['todas','nuevas','critica','alta','media','baja'].map(f=>(
+          <button key={f} onClick={()=>setFiltro(f)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all capitalize ${filtro===f?'bg-indigo-600 text-white':'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'}`}>
+            {f === 'todas' ? 'Todas' : f === 'nuevas' ? 'No leídas' : f.charAt(0).toUpperCase()+f.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      <div className="space-y-3">
+        {filtradas.map(a=>(
+          <div key={a.id} className={`border-l-4 rounded-r-xl p-4 ${colorAlerta[a.tipo]} ${a.leida?'opacity-70':''}`}>
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-2 flex-wrap">
+                  {!a.leida && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse-dot"/>}
+                  <Badge label={a.tipo.charAt(0).toUpperCase()+a.tipo.slice(1)} color={badgeAlerta[a.tipo]}/>
+                  <span className="text-xs text-slate-400">{a.fecha}</span>
+                </div>
+                <h4 className="font-semibold text-slate-800 dark:text-white text-sm mb-1">{a.titulo}</h4>
+                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed mb-2">{a.descripcion}</p>
+                <div className="flex flex-wrap gap-1">
+                  {a.afecta.map((af,i)=>(
+                    <span key={i} className="text-xs bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full">
+                      Afecta: {af}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="flex flex-col gap-2 shrink-0">
+                {!a.leida && (
+                  <button onClick={()=>marcarLeida(a.id)}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-xs text-slate-600 dark:text-slate-400 hover:border-indigo-300 transition-all">
+                    <Icon d={icons.check} size={11}/>Marcar leída
+                  </button>
+                )}
+                <button className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs hover:bg-indigo-700 transition-all">
+                  <Icon d={icons.zap} size={11}/>Ir a Brecha
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {filtradas.length === 0 && (
+          <div className="text-center py-12 text-slate-400">
+            <Icon d={icons.bell} size={32} className="mx-auto mb-3 opacity-30"/>
+            <p className="text-sm">No hay alertas para este filtro</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── APP SHELL ────────────────────────────────────────────────────────────────
+function App() {
+  const [dark, setDark] = useState(false);
+  const [module, setModule] = useState('dashboard');
+  const [search, setSearch] = useState('');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  useEffect(()=>{
+    document.documentElement.classList.toggle('dark', dark);
+  }, [dark]);
+
+  const navItems = [
+    { id:'dashboard', label:'Panel General', icon:'home' },
+    { id:'normativa', label:'Gestión Normativa', icon:'book' },
+    { id:'ia', label:'IA y Aprendizaje', icon:'cpu' },
+    { id:'analitica', label:'Analítica de Impacto', icon:'chart' },
+    { id:'gobernanza', label:'Gobernanza y Alertas', icon:'shield' },
+  ];
+
+  const alertasNuevas = ALERTAS.filter(a=>!a.leida).length;
+
+  const renderModule = () => {
+    if (module==='dashboard') return <Dashboard setModule={setModule}/>;
+    if (module==='normativa') return <NormativaModule/>;
+    if (module==='ia') return <IAModule/>;
+    if (module==='analitica') return <AnaliticaModule/>;
+    if (module==='gobernanza') return <GobernanzaModule/>;
+    return null;
+  };
+
+  return (
+    <div className={`flex h-screen bg-slate-50 dark:bg-slate-900 overflow-hidden`}>
+      {/* Sidebar */}
+      <aside className={`${sidebarOpen?'w-60':'w-16'} shrink-0 bg-slate-900 dark:bg-slate-950 flex flex-col transition-all duration-300 overflow-hidden`}>
+        {/* Logo */}
+        <div className="p-4 border-b border-slate-800">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center shrink-0">
+              <Icon d={icons.scale} size={16} className="text-white"/>
+            </div>
+            {sidebarOpen && (
+              <div>
+                <div className="text-white font-bold text-sm leading-tight">SRIPT</div>
+                <div className="text-slate-400 text-xs leading-tight">Gov. Territorial</div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Navigation */}
+        <nav className="flex-1 p-2 space-y-1 mt-2">
+          {navItems.map(item=>(
+            <button key={item.id} onClick={()=>setModule(item.id)}
+              className={`nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all ${module===item.id?'active':'text-slate-400 hover:text-slate-200'}`}>
+              <Icon d={icons[item.icon]} size={17} className={module===item.id?'text-indigo-400':''}/>
+              {sidebarOpen && (
+                <span className={`text-sm font-medium ${module===item.id?'text-white':'text-slate-400'}`}>{item.label}</span>
+              )}
+              {item.id==='gobernanza' && alertasNuevas > 0 && (
+                <span className={`${sidebarOpen?'ml-auto':'absolute left-8 top-1'} w-4 h-4 bg-red-500 rounded-full text-white text-xs flex items-center justify-center font-bold`}>
+                  {alertasNuevas}
+                </span>
+              )}
+            </button>
+          ))}
+        </nav>
+
+        {/* Bottom */}
+        <div className="p-3 border-t border-slate-800">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-indigo-700 flex items-center justify-center text-white text-xs font-bold shrink-0">JM</div>
+            {sidebarOpen && (
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-slate-300 truncate">Juan Martínez</div>
+                <div className="text-xs text-slate-500 truncate">Secretario Hacienda</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </aside>
+
+      {/* Main */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <header className="h-14 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center px-4 gap-4 shrink-0">
+          <button onClick={()=>setSidebarOpen(s=>!s)}
+            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-all">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+          </button>
+
+          <div className="flex-1 max-w-md relative">
+            <Icon d={icons.search} size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+            <input value={search} onChange={e=>setSearch(e.target.value)}
+              placeholder="Buscar normas, brechas, conceptos..."
+              className="w-full pl-9 pr-4 py-2 text-sm bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white"/>
+          </div>
+
+          <div className="ml-auto flex items-center gap-3">
+            <button className="relative text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-all" onClick={()=>setModule('gobernanza')}>
+              <Icon d={icons.bell} size={18}/>
+              {alertasNuevas > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-white text-xs flex items-center justify-center font-bold">{alertasNuevas}</span>}
+            </button>
+            <button onClick={()=>setDark(d=>!d)}
+              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-all">
+              <Icon d={dark ? icons.sun : icons.moon} size={17}/>
+            </button>
+            <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center text-indigo-600 dark:text-indigo-400 text-xs font-bold">JM</div>
+          </div>
+        </header>
+
+        {/* Content */}
+        <main className="flex-1 overflow-y-auto p-6">
+          <div className="max-w-6xl mx-auto">
+            {renderModule()}
+          </div>
+        </main>
+
+        {/* Footer */}
+        <footer className="h-8 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700 flex items-center px-6 shrink-0">
+          <span className="text-xs text-slate-400">SRIPT v1.0 — Servicio Regulatorio Integrado para Gobiernos Territoriales · CONSISA 2026</span>
+          <span className="ml-auto text-xs text-slate-400">Municipio: Zipaquirá, Cundinamarca</span>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
