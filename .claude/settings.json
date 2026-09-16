@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "notebooklm": {
+      "command": "/opt/node22/bin/notebooklm-mcp",
+      "args": [],
+      "env": {
+        "BROWSER_CHANNEL": "chromium",
+        "PLAYWRIGHT_BROWSERS_PATH": "/opt/pw-browsers",
+        "HEADLESS": "true",
+        "NOTEBOOKLM_PROFILE": "full",
+        "NOTEBOOKLM_TRANSPORT": "stdio",
+        "ANSWER_TIMEOUT_MS": "600000",
+        "BROWSER_TIMEOUT": "30000",
+        "STEALTH_ENABLED": "true"
+      }
+    }
+  }
+}
